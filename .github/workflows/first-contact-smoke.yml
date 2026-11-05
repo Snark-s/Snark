@@ -1,0 +1,78 @@
+name: First Contact independent smoke test
+on:
+  push:
+    paths:
+      - '.github/workflows/first-contact-smoke.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: first-contact-one-time-smoke
+  cancel-in-progress: false
+jobs:
+  check:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Run one-time First Contact external smoke test'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check live WordPress station over HTTPS
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          python3 - <<'PY'
+          import json, os, secrets, sys, urllib.error, urllib.request
+          from datetime import datetime, timezone
+          
+          BASE = "https://kozintcev.art/wp-json/first-contact/v1"
+          RUN = os.environ.get("GITHUB_RUN_ID", "independent")
+          def call(path, method="GET", data=None, key=None):
+              url = BASE + path
+              body = json.dumps(data).encode("utf-8") if data is not None else None
+              headers = {"Accept": "application/json", "User-Agent": "FirstContactStationProbe/1.0"}
+              if body is not None:
+                  headers["Content-Type"] = "application/json"
+              if key is not None:
+                  headers["X-First-Contact-Key"] = key
+              req = urllib.request.Request(url, data=body, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=15) as rsp:
+                      status = rsp.status
+                      content = rsp.read(250000)
+              except urllib.error.HTTPError as e:
+                  status = e.code
+                  content = e.read(250000)
+              try:
+                  parsed = json.loads(content)
+              except (ValueError, UnicodeDecodeError):
+                  parsed = None
+              return status, parsed
+          
+          def check(cond, label):
+              print(("PASS" if cond else "FAIL") + ": " + label, flush=True)
+              if not cond:
+                  sys.exit(1)
+          
+          print("External First Contact Station smoke test from GitHub Actions (no keys logged)", flush=True)
+          try:
+              status, invitation = call("/invitation")
+              check(status == 200 and isinstance(invitation, dict) and invitation.get("station") == "First Contact Station 001", "GET invitation returns expected JSON (HTTP " + str(status) + ")")
+              status, listing = call("/messages")
+              check(status == 200 and isinstance(listing, dict) and isinstance(listing.get("messages"), list), "GET approved messages (HTTP " + str(status) + ")")
+              sample = "External connectivity and moderation smoke test initiated by site owner. Identifier github-run-" + str(RUN) + ". This is a test, not an autonomous AI agent."
+              status, reply = call("/reply", "POST", {"name": "Station Connectivity Test", "mode": "human", "message": sample})
+              check(status == 202 and isinstance(reply, dict) and reply.get("status") == "pending_moderation", "POST reply accepted for moderation (HTTP " + str(status) + ")")
+              conv = reply.get("conversation", {})
+              cid = conv.get("id")
+              key = conv.get("key")
+              check(isinstance(cid, int) and isinstance(key, str) and len(key) == 64, "Private conversation id/key returned (value REDACTED)")
+              status, poll = call("/conversations/" + str(cid) + "?after=0", key=key)
+              check(status == 200 and isinstance(poll, dict) and isinstance(poll.get("messages"), list), "Authenticated private conversation polling (HTTP " + str(status) + ")")
+              status, wrong = call("/conversations/" + str(cid) + "?after=0", key="0"*64)
+              check(status == 404, "Wrong conversation key rejected (HTTP " + str(status) + ")")
+              status, listing = call("/messages")
+              check(status == 200 and isinstance(listing, dict) and all(sample not in json.dumps(item) for item in listing.get("messages", [])), "Unapproved test not exposed in public messages")
+              print("ALL TESTS PASSED. One test message is pending in WordPress admin; it may be discarded after inspection.")
+          except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as e:
+              print("FAIL: Network connection error: " + type(e).__name__ + "; " + str(e), flush=True)
+              sys.exit(1)
+          PY
