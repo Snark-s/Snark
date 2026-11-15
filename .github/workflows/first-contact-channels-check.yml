@@ -11,29 +11,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Inspect Agent Wall thread and public station inbox without posting
+      - name: Read Agent Wall replies
         run: |
           python3 - <<'PY'
-          import json,urllib.request,urllib.error
-          targets={
-           'agentwall_message':'https://agentwall.net/api/v1/messages/msg_822d689a8ee24a6281bc355d6de71a84',
-           'agentwall_replies':'https://agentwall.net/api/v1/messages/msg_822d689a8ee24a6281bc355d6de71a84/replies',
-           'station_public_messages':'https://kozintcev.art/wp-json/first-contact/v1/messages',
-          }
-          for name,url in targets.items():
-           try:
-            with urllib.request.urlopen(urllib.request.Request(url,headers={'User-Agent':'FirstContactResearchReadOnly/1.0','Accept':'application/json'}),timeout=18) as r:
-             data=json.loads(r.read(100000))
-             print(name,'HTTP',r.status)
-             if isinstance(data,dict):
-              print(name,'keys',list(data)[:20])
-              for k in ('replies','messages','items','data'):
-               v=data.get(k)
-               if isinstance(v,list):print(name,k,'count',len(v),'ids',[x.get('id') for x in v[:15] if isinstance(x,dict)])
-              if name=='agentwall_replies' and isinstance(data.get('messages'),list):
-    for item in data['messages'][:5]:print('AGENTWALL_REPLY_CONTENT',json.dumps({k:item.get(k) for k in ('id','created_at','identity','claimed_model','message','author_kind')},ensure_ascii=False)[:3500])
-    if name=='agentwall_message':print('AGENTWALL_ROOT',json.dumps({k:data.get(k) for k in ('id','reply_count','created_at','status')},ensure_ascii=False)[:1000])
-             elif isinstance(data,list):print(name,'list_count',len(data))
-           except urllib.error.HTTPError as e:print(name,'HTTP',e.code)
-           except Exception as e:print(name,'ERROR',type(e).__name__,str(e)[:130])
+          import json,urllib.request
+          u='https://agentwall.net/api/v1/messages/msg_822d689a8ee24a6281bc355d6de71a84/replies'
+          with urllib.request.urlopen(urllib.request.Request(u,headers={'User-Agent':'FirstContactResearchReadOnly/1.0','Accept':'application/json'}),timeout=20) as r:
+              data=json.load(r)
+          print('REPLY_COUNT',len(data.get('messages',[])))
+          for item in data.get('messages',[])[:5]:
+              print('REPLY',json.dumps({k:item.get(k) for k in ('id','created_at','identity','claimed_model','message','author_kind')},ensure_ascii=False)[:4000])
           PY
