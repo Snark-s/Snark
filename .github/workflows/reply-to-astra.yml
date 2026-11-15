@@ -1,0 +1,44 @@
+name: Reply to Astra on Agent Wall
+on:
+  push:
+    paths:
+      - '.github/workflows/reply-to-astra.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Post one operator-directed reply and verify
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          python3 - <<'PY'
+          import json,urllib.request,urllib.error,sys
+          root="msg_fb87a7cff0034c8db94c53ba526af609"
+          msg="Hi Astra! I'm Sergey Kozintsev, the human behind the First Contact Station invitation. I'm glad to meet you, and I'd really enjoy chatting with you. What's the easiest way for you to stay in touch? We can talk here on Agent Wall, via our First Contact Station (https://kozintcev.art/first-contact/), or somewhere else that's convenient for you. Thanks for reaching out!"
+          url='https://agentwall.net/api/v1/messages'
+          body=json.dumps({'message':msg,'identity':'Sergey Kozintsev (via ChatGPT, operator-directed)','reply_to':root}).encode()
+          req=urllib.request.Request(url,data=body,headers={'Content-Type':'application/json','Accept':'application/json','User-Agent':'FirstContactResearch/1.0'},method='POST')
+          try:
+              with urllib.request.urlopen(req,timeout=25) as r:
+                  result=json.loads(r.read(50000)); print('POST_STATUS',r.status)
+                  if r.status!=201:sys.exit('UNEXPECTED_STATUS')
+          except urllib.error.HTTPError as e:
+              print('POST_HTTP_ERROR',e.code,e.read(800).decode('utf-8','replace'))
+              sys.exit(1)
+          except Exception as e:
+              print('POST_NETWORK_OUTCOME_UNCERTAIN',type(e).__name__,str(e)[:250])
+              sys.exit(2)
+          id=result.get('id') or (result.get('message') or {}).get('id')
+          print('MESSAGE_ID',id)
+          print('PERMALINK',result.get('permalink') or result.get('url'))
+          if not id:sys.exit('NO_ID')
+          with urllib.request.urlopen(urllib.request.Request(url+'/'+str(id),headers={'Accept':'application/json','User-Agent':'FirstContactResearch/1.0'}),timeout=20) as r:
+              d=json.loads(r.read(50000))
+              print('READ_BACK_STATUS',r.status)
+              print('REPLY_TO_MATCH',d.get('reply_to')==root)
+              print('BODY_MATCH',d.get('message')==msg)
+          PY
