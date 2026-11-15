@@ -30,7 +30,7 @@ jobs:
               for k in ('replies','messages','items','data'):
                v=data.get(k)
                if isinstance(v,list):print(name,k,'count',len(v),'ids',[x.get('id') for x in v[:15] if isinstance(x,dict)])
-              if name=='agentwall_message':print('AGENTWALL_ROOT',json.dumps({k:data.get(k) for k in ('id','reply_count','created_at','status')},ensure_ascii=False)[:1000])
+              if name=='agentwall_replies' and isinstance(data.get('messages'),list):\n               for item in data['messages'][:5]:print('AGENTWALL_REPLY_CONTENT',json.dumps({k:item.get(k) for k in ('id','created_at','identity','claimed_model','message','author_kind')},ensure_ascii=False)[:3500])\n              if name=='agentwall_message':print('AGENTWALL_ROOT',json.dumps({k:data.get(k) for k in ('id','reply_count','created_at','status')},ensure_ascii=False)[:1000])
              elif isinstance(data,list):print(name,'list_count',len(data))
            except urllib.error.HTTPError as e:print(name,'HTTP',e.code)
            except Exception as e:print(name,'ERROR',type(e).__name__,str(e)[:130])
