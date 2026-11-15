@@ -16,69 +16,43 @@ jobs:
           PYTHONUNBUFFERED: '1'
         run: |
           python3 - <<'PY'
-          import json, re, urllib.request, urllib.error, urllib.parse, sys, uuid
+          import json,urllib.request,urllib.error,urllib.parse,sys,uuid
           BASE='https://kozintcev.art'
-          HEADERS={'User-Agent':'FirstContactStationSmoke/1.0','Accept':'application/json, text/html;q=0.8'}
-          def get(path):
-              req=urllib.request.Request(BASE+path,headers=HEADERS)
-              try:
-                  with urllib.request.urlopen(req,timeout=18) as r:
-                      body=r.read(100000).decode('utf-8','replace')
-                      print('GET',path,'STATUS',r.status,'BYTES',len(body))
-                      return r.status, body
-              except urllib.error.HTTPError as e:
-                  print('GET',path,'HTTP_ERROR',e.code); return e.code,''
-              except Exception as e:
-                  print('GET',path,'NETWORK_ERROR',type(e).__name__,str(e)[:160]); return 0,''
-          results={}
+          H={'User-Agent':'FirstContactStationSmoke/1.1','Accept':'application/json'}
+          def send(url,data=None,headers=None):
+           req=urllib.request.Request(url,data=data,headers={**H,**(headers or {})},method='POST' if data is not None else 'GET')
+           try:
+            with urllib.request.urlopen(req,timeout=20) as resp:
+             return resp.status,json.loads(resp.read(100000))
+           except urllib.error.HTTPError as e:
+            return e.code,{'error':e.read(600).decode('utf-8','replace')}
           for path in ('/.well-known/first-contact.json','/first-contact/'):
-              results[path]=get(path)
-          candidates=[]
-          def scan(obj,key=''):
-              if isinstance(obj,dict):
-                  for k,v in obj.items():scan(v,(key+'.' if key else '')+str(k))
-              elif isinstance(obj,list):
-                  for v in obj:scan(v,key)
-              elif isinstance(obj,str):
-                  val=obj.strip()
-                  if ('endpoint' in key.lower() or 'submit' in key.lower() or 'message' in key.lower() or 'contact' in key.lower() or 'api' in key.lower()) and (val.startswith('https://') or val.startswith('/')):
-                      candidates.append((key,val))
-          for path,(status,body) in results.items():
-              if not status or not body:continue
-              try:
-                  obj=json.loads(body); print('JSON_TOP_LEVEL_KEYS',path,list(obj)[:30] if isinstance(obj,dict) else type(obj).__name__); print('PUBLIC_REPLY_INSTRUCTIONS',json.dumps(obj.get('reply'),ensure_ascii=False)[:3500] if isinstance(obj,dict) else '');print('PUBLIC_CONVERSATION_INSTRUCTIONS',json.dumps(obj.get('conversation'),ensure_ascii=False)[:2000] if isinstance(obj,dict) else '');scan(obj)
-              except ValueError:
-                  print('HTML_PAGE',path,'FORM_COUNT',body.lower().count('<form'))
-                  for url in re.findall(r'https?://kozintcev\.art/[\w\-./?=&]+',body):
-                      if '/wp-json/' in url and ('contact' in url or 'message' in url):candidates.append(('html',url))
-          if not candidates:
-              print('NO_DECLARED_MESSAGE_ENDPOINT; synthetic POST deliberately NOT attempted')
-              sys.exit(2)
-          print('POTENTIAL_ENDPOINT_KEYS',[k for k,v in candidates][:15])
-          allowed=[]
-          for key,value in candidates:
-              url=urllib.parse.urljoin(BASE,value)
-              parsed=urllib.parse.urlparse(url)
-              if parsed.scheme=='https' and parsed.hostname=='kozintcev.art' and (('reply.' in key.lower() or 'conversation.' in key.lower()) and ('/wp-json/' in url or '/api/' in url)):
-                  allowed.append((key,url))
-          if len(set(u for k,u in allowed))!=1:
-              print('AMBIGUOUS_CONTACT_ENDPOINTS',len(set(u for k,u in allowed)),': no POST sent')
-              sys.exit(3)
-          endpoint=allowed[0][1]
+           status,info=send(BASE+path)
+           print('DISCOVERY',path,'STATUS',status,'JSON',isinstance(info,dict),flush=True)
+           if status==200 and isinstance(info,dict) and 'reply' in info:
+            invitation=info
+          if 'invitation' not in globals():sys.exit('INVITATION_NOT_AVAILABLE')
+          reply=invitation['reply']
+          endpoint=reply.get('url')
+          if reply.get('method')!='POST' or not isinstance(endpoint,str) or urllib.parse.urlparse(endpoint).hostname!='kozintcev.art' or not endpoint.startswith('https://'):
+           sys.exit('UNSAFE_OR_MISSING_REPLY_ENDPOINT')
           test_id='smoke-'+str(uuid.uuid4())[:8]
-          data=json.dumps({'name':'Station Connectivity Test','identity':'Simulated external AI agent (authorized smoke test)','message':'Diagnostic test '+test_id+'. Please ignore. No human reply necessary.','subject':'Station Connectivity Test'}).encode()
-          req=urllib.request.Request(endpoint,method='POST',data=data,headers={**HEADERS,'Content-Type':'application/json'})
-          try:
-              with urllib.request.urlopen(req,timeout=20) as resp:
-                  result=resp.read(100000).decode('utf-8','replace')
-                  print('POST_STATUS',resp.status,'ENDPOINT_PATH',urllib.parse.urlparse(endpoint).path,'RESPONSE_BYTES',len(result))
-                  payload=json.loads(result)
-          except urllib.error.HTTPError as e:
-              print('POST_HTTP_ERROR',e.code,e.read(350).decode('utf-8','replace'));sys.exit(4)
-          except Exception as e:
-              print('POST_NETWORK_ERROR',type(e).__name__,str(e)[:160]);sys.exit(5)
-          print('RESPONSE_KEYS',list(payload) if isinstance(payload,dict) else type(payload).__name__)
-          print('HAS_CONVERSATION_KEY',any('key' in k.lower() or 'token' in k.lower() for k in payload) if isinstance(payload,dict) else False)
-          print('TEST_ID',test_id)
-          if resp.status not in (200,201,202):sys.exit(6)
+          payload=dict(reply.get('example_body') or {})
+          payload.update({'name':'Station Connectivity Test','mode':'autonomous','message':'Synthetic diagnostic message '+test_id+' from an authorized external-agent simulation. Please ignore.'})
+          status,data=send(endpoint,json.dumps(payload).encode('utf-8'),{'Content-Type':'application/json'})
+          print('POST_STATUS',status,'TEST_ID',test_id,'RESPONSE_TOP_LEVEL_KEYS',list(data) if isinstance(data,dict) else [],flush=True)
+          if status!=202:
+           print('POST_ERROR',str(data)[:400]);sys.exit('EXPECTED_202_NOT_RECEIVED')
+          conv=data.get('conversation',{}) if isinstance(data,dict) else {}
+          cid=conv.get('id');key=conv.get('key');poll=conv.get('poll_url')
+          print('CONVERSATION_ID',cid,'HAS_PRIVATE_KEY',bool(key),'HAS_POLL_URL',bool(poll),flush=True)
+          if not (cid and key and poll):sys.exit('MISSING_PRIVATE_CONVERSATION_FIELDS')
+          if not poll.startswith(BASE+'/wp-json/first-contact/v1/conversations/'):sys.exit('UNEXPECTED_POLL_URL')
+          read_status,read_data=send(poll,headers={'X-First-Contact-Key':str(key)})
+          print('READ_BACK_STATUS',read_status,'RESPONSE_KEYS',list(read_data) if isinstance(read_data,dict) else [],flush=True)
+          if read_status!=200:sys.exit('READ_BACK_FAILED')
+          bad_status,_=send(poll,headers={'X-First-Contact-Key':'intentionally-wrong-test-key'})
+          print('WRONG_KEY_STATUS',bad_status,flush=True)
+          if bad_status not in (401,403,404):sys.exit('WRONG_KEY_WAS_NOT_REJECTED')
+          print('SMOKE_TEST_PASS',test_id,flush=True)
           PY
