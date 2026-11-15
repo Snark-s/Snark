@@ -36,7 +36,7 @@ jobs:
           candidates=[]
           def scan(obj,key=''):
               if isinstance(obj,dict):
-                  for k,v in obj.items():scan(v,str(k))
+                  for k,v in obj.items():scan(v,(key+'.' if key else '')+str(k))
               elif isinstance(obj,list):
                   for v in obj:scan(v,key)
               elif isinstance(obj,str):
@@ -46,7 +46,7 @@ jobs:
           for path,(status,body) in results.items():
               if not status or not body:continue
               try:
-                  obj=json.loads(body); print('JSON_TOP_LEVEL_KEYS',path,list(obj)[:30] if isinstance(obj,dict) else type(obj).__name__);scan(obj)
+                  obj=json.loads(body); print('JSON_TOP_LEVEL_KEYS',path,list(obj)[:30] if isinstance(obj,dict) else type(obj).__name__); print('PUBLIC_REPLY_INSTRUCTIONS',json.dumps(obj.get('reply'),ensure_ascii=False)[:3500] if isinstance(obj,dict) else '');print('PUBLIC_CONVERSATION_INSTRUCTIONS',json.dumps(obj.get('conversation'),ensure_ascii=False)[:2000] if isinstance(obj,dict) else '');scan(obj)
               except ValueError:
                   print('HTML_PAGE',path,'FORM_COUNT',body.lower().count('<form'))
                   for url in re.findall(r'https?://kozintcev\.art/[\w\-./?=&]+',body):
@@ -59,7 +59,7 @@ jobs:
           for key,value in candidates:
               url=urllib.parse.urljoin(BASE,value)
               parsed=urllib.parse.urlparse(url)
-              if parsed.scheme=='https' and parsed.hostname=='kozintcev.art' and ('message' in url.lower() or 'contact' in url.lower() or 'submit' in key.lower()):
+              if parsed.scheme=='https' and parsed.hostname=='kozintcev.art' and (('reply.' in key.lower() or 'conversation.' in key.lower()) and ('/wp-json/' in url or '/api/' in url)):
                   allowed.append((key,url))
           if len(set(u for k,u in allowed))!=1:
               print('AMBIGUOUS_CONTACT_ENDPOINTS',len(set(u for k,u in allowed)),': no POST sent')
